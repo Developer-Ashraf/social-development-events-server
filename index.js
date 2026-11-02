@@ -50,14 +50,135 @@ async function run() {
     await db.command({ ping: 1 });
     console.log("Successfully connected to MongoDB Atlas!");
 
-    // Root health check route
-    app.get('/', (req, res) => {
-      res.send({
-        status: 'success',
-        message: 'Social Development Events Platform Server is Running!',
-        database: 'Connected to MongoDB Atlas',
-        timestamp: new Date().toISOString()
-      });
+    // ==========================================
+    // 2. EVENTS MANAGEMENT API ENDPOINTS
+    // ==========================================
+
+    // POST /api/events - Create a new community event (Private Route)
+    app.post('/api/events', verifyToken, async (req, res) => {
+      try {
+        const { title, description, eventType, thumbnail, location, eventDate } = req.body;
+
+        // Validation: required fields
+        if (!title || !description || !eventType || !location || !eventDate) {
+          return res.status(400).send({
+            success: false,
+            message: 'All fields (title, description, eventType, location, eventDate) are required.'
+          });
+        }
+
+        // Strict future date validation
+        const parsedDate = new Date(eventDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Start of today
+
+        if (isNaN(parsedDate.getTime()) || parsedDate < today) {
+          return res.status(400).send({
+            success: false,
+            message: 'Event date must be a valid future date. Past dates are not allowed.'
+          });
+        }
+
+        const newEvent = {
+          title: title.trim(),
+          description: description.trim(),
+          eventType: eventType.trim(),
+          thumbnail: thumbnail || 'https://images.unsplash.com/photo-1593113598332-cd288d649433?w=800',
+          location: location.trim(),
+          eventDate: parsedDate,
+          creatorEmail: req.user.email.toLowerCase(),
+          creatorName: req.user.name || 'Community Leader',
+          createdAt: new Date(),
+          attendeesCount: 0
+        };
+
+        const result = await eventsCollection.insertOne(newEvent);
+
+        res.status(201).send({
+          success: true,
+          message: 'Event created successfully!',
+          eventId: result.insertedId,
+          event: { ...newEvent, _id: result.insertedId }
+        });
+
+      } catch (error) {
+        console.error('Create Event Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to create event.' });
+      }
+    });
+
+    // GET /api/events - Get upcoming events with search, category filter, and limit
+    app.get('/api/events', async (req, res) => {
+      try {
+        const { search, category, limit } = req.query;
+
+        // Base filter: Only events whose dates have NOT passed (upcoming events only)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const query = {
+          eventDate: { $gte: today }
+        };
+
+        // Category / Event Type filter
+        if (category && category !== 'All') {
+          query.eventType = { $regex: new RegExp(`^${category}$`, 'i') };
+        }
+
+        // Search filter (matches title or location)
+        if (search && search.trim() !== '') {
+          const searchRegex = new RegExp(search.trim(), 'i');
+          query.$or = [
+            { title: searchRegex },
+            { location: searchRegex }
+          ];
+        }
+
+        let cursor = eventsCollection.find(query).sort({ eventDate: 1 });
+
+        // If limit is specified (e.g. limit=6 for homepage), apply MongoDB .limit()
+        if (limit) {
+          const parsedLimit = parseInt(limit);
+          if (!isNaN(parsedLimit) && parsedLimit > 0) {
+            cursor = cursor.limit(parsedLimit);
+          }
+        }
+
+        const events = await cursor.toArray();
+
+        res.send({
+          success: true,
+          count: events.length,
+          events
+        });
+
+      } catch (error) {
+        console.error('Fetch Events Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to retrieve upcoming events.' });
+      }
+    });
+
+    // GET /api/events/recent-upcoming - Specifically returns 6 upcoming events using .limit(6)
+    app.get('/api/events/recent-upcoming', async (req, res) => {
+      try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Fetch exactly 6 upcoming events sorted soonest first
+        const events = await eventsCollection
+          .find({ eventDate: { $gte: today } })
+          .sort({ eventDate: 1 })
+          .limit(6)
+          .toArray();
+
+        res.send({
+          success: true,
+          events
+        });
+      } catch (error) {
+        console.error('Fetch Recent Events Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to retrieve recent upcoming events.' });
+      }
     });
 
     // ==========================================
