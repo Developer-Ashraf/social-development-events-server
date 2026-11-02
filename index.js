@@ -158,26 +158,171 @@ async function run() {
       }
     });
 
-    // GET /api/events/recent-upcoming - Specifically returns 6 upcoming events using .limit(6)
-    app.get('/api/events/recent-upcoming', async (req, res) => {
-      try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+    // ==========================================
+    // 3. EVENT DETAILS, JOIN & PARTICIPATION
+    // ==========================================
 
-        // Fetch exactly 6 upcoming events sorted soonest first
-        const events = await eventsCollection
-          .find({ eventDate: { $gte: today } })
+    // GET /api/events/user/joined - Get all events joined by logged-in user (Sorted by event date)
+    app.get('/api/events/user/joined', verifyToken, async (req, res) => {
+      try {
+        const userEmail = req.user.email.toLowerCase();
+
+        // Find all records where userEmail matches and sort chronologically by event date
+        const joinedList = await joinedEventsCollection
+          .find({ userEmail })
           .sort({ eventDate: 1 })
-          .limit(6)
           .toArray();
 
         res.send({
           success: true,
-          events
+          count: joinedList.length,
+          joinedEvents: joinedList
         });
+
       } catch (error) {
-        console.error('Fetch Recent Events Error:', error);
-        res.status(500).send({ success: false, message: 'Failed to retrieve recent upcoming events.' });
+        console.error('Fetch Joined Events Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to retrieve joined events.' });
+      }
+    });
+
+    // GET /api/events/:id - Get single event details (Public view + checks user join status)
+    app.get('/api/events/:id', verifyTokenOptional, async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ success: false, message: 'Invalid Event ID format.' });
+        }
+
+        const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
+        if (!event) {
+          return res.status(404).send({ success: false, message: 'Event not found.' });
+        }
+
+        // Count current joined volunteers
+        const totalJoined = await joinedEventsCollection.countDocuments({ eventId: id });
+
+        // Check if the current authenticated user has joined
+        let hasJoined = false;
+        if (req.user && req.user.email) {
+          const userJoinRecord = await joinedEventsCollection.findOne({
+            eventId: id,
+            userEmail: req.user.email.toLowerCase()
+          });
+          if (userJoinRecord) {
+            hasJoined = true;
+          }
+        }
+
+        res.send({
+          success: true,
+          event: {
+            ...event,
+            attendeesCount: totalJoined,
+            isJoined: hasJoined
+          }
+        });
+
+      } catch (error) {
+        console.error('Fetch Event Details Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to load event details.' });
+      }
+    });
+
+    // POST /api/events/:id/join - Join an event (Private Route)
+    app.post('/api/events/:id/join', verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const userEmail = req.user.email.toLowerCase();
+        const userName = req.user.name;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ success: false, message: 'Invalid Event ID.' });
+        }
+
+        const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
+        if (!event) {
+          return res.status(404).send({ success: false, message: 'Event not found.' });
+        }
+
+        // Check if already joined
+        const existingJoin = await joinedEventsCollection.findOne({
+          eventId: id,
+          userEmail
+        });
+
+        if (existingJoin) {
+          return res.status(400).send({
+            success: false,
+            message: 'You have already joined this event.'
+          });
+        }
+
+        // Record the participation
+        const joinRecord = {
+          eventId: id,
+          eventTitle: event.title,
+          eventDate: event.eventDate,
+          location: event.location,
+          thumbnail: event.thumbnail,
+          eventType: event.eventType,
+          userEmail,
+          userName,
+          joinedAt: new Date()
+        };
+
+        await joinedEventsCollection.insertOne(joinRecord);
+
+        // Increment event attendees count
+        await eventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $inc: { attendeesCount: 1 } }
+        );
+
+        res.send({
+          success: true,
+          message: 'You have successfully joined this event! Thank you for gathering for good.',
+          joinedAt: joinRecord.joinedAt
+        });
+
+      } catch (error) {
+        console.error('Join Event Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to join event.' });
+      }
+    });
+
+    // POST /api/events/:id/leave - Leave a joined event (Private Route)
+    app.post('/api/events/:id/leave', verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const userEmail = req.user.email.toLowerCase();
+
+        const result = await joinedEventsCollection.deleteOne({
+          eventId: id,
+          userEmail
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(400).send({
+            success: false,
+            message: 'You are not registered as an attendee for this event.'
+          });
+        }
+
+        // Decrement attendee count
+        await eventsCollection.updateOne(
+          { _id: new ObjectId(id), attendeesCount: { $gt: 0 } },
+          { $inc: { attendeesCount: -1 } }
+        );
+
+        res.send({
+          success: true,
+          message: 'You have left the event.'
+        });
+
+      } catch (error) {
+        console.error('Leave Event Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to leave event.' });
       }
     });
 
