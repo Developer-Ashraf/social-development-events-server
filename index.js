@@ -397,44 +397,77 @@ async function run() {
       }
     });
 
-    // DELETE /api/events/:id - Delete an event with strict ownership check (Private Route)
-    app.delete('/api/events/:id', verifyToken, async (req, res) => {
+    // PUT /api/auth/profile - Update user profile (Name & photoURL) - Bonus Feature
+    app.put('/api/auth/profile', verifyToken, async (req, res) => {
       try {
-        const { id } = req.params;
+        const { name, photoURL } = req.body;
         const userEmail = req.user.email.toLowerCase();
 
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ success: false, message: 'Invalid Event ID.' });
+        if (!name || name.trim() === '') {
+          return res.status(400).send({ success: false, message: 'Name cannot be empty.' });
         }
 
-        const existingEvent = await eventsCollection.findOne({ _id: new ObjectId(id) });
-        if (!existingEvent) {
-          return res.status(404).send({ success: false, message: 'Event not found.' });
+        const updateDoc = {
+          $set: {
+            name: name.trim(),
+            photoURL: photoURL ? photoURL.trim() : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+            updatedAt: new Date()
+          }
+        };
+
+        const result = await usersCollection.updateOne(
+          { email: userEmail },
+          updateDoc
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ success: false, message: 'User not found.' });
         }
 
-        // Ownership enforcement: Only the creator can delete the event
-        if (existingEvent.creatorEmail !== userEmail) {
-          return res.status(403).send({
-            success: false,
-            message: 'Forbidden. You do not have permission to delete this event.'
-          });
-        }
+        // Sync name updates to creatorName in eventsCollection
+        await eventsCollection.updateMany(
+          { creatorEmail: userEmail },
+          { $set: { creatorName: updateDoc.$set.name } }
+        );
 
-        // Delete from events collection
-        await eventsCollection.deleteOne({ _id: new ObjectId(id) });
-
-        // Clean up any joined event records associated with this deleted event
-        await joinedEventsCollection.deleteMany({ eventId: id });
+        // Sync name updates to userName in joinedEventsCollection
+        await joinedEventsCollection.updateMany(
+          { userEmail: userEmail },
+          { $set: { userName: updateDoc.$set.name } }
+        );
 
         res.send({
           success: true,
-          message: 'Event deleted successfully.'
+          message: 'Profile updated successfully!',
+          user: {
+            name: updateDoc.$set.name,
+            photoURL: updateDoc.$set.photoURL,
+            email: userEmail
+          }
         });
 
       } catch (error) {
-        console.error('Delete Event Error:', error);
-        res.status(500).send({ success: false, message: 'Failed to delete event.' });
+        console.error('Update Profile Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to update profile.' });
       }
+    });
+
+    // 404 Not Found Middleware for unknown routes
+    app.use((req, res, next) => {
+      res.status(404).send({
+        success: false,
+        message: `Route not found: ${req.method} ${req.originalUrl}`
+      });
+    });
+
+    // Global Error Handling Middleware
+    app.use((err, req, res, next) => {
+      console.error('Global Error Handler:', err.stack);
+      res.status(500).send({
+        success: false,
+        message: 'Something went wrong on the server!',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
     });
 
     // ==========================================
