@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
-const verifyToken = require('./middleware/auth');
+const { verifyToken, verifyTokenOptional } = require('./middleware/auth');
 
 const app = express();
 const port = process.env.PORT || 5000;
