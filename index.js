@@ -291,38 +291,149 @@ async function run() {
       }
     });
 
-    // POST /api/events/:id/leave - Leave a joined event (Private Route)
-    app.post('/api/events/:id/leave', verifyToken, async (req, res) => {
+    // ==========================================
+    // 4. MANAGE EVENTS (USER'S CREATED EVENTS)
+    // ==========================================
+
+    // GET /api/events/user/created - Get all events created by logged-in user (Private Route)
+    app.get('/api/events/user/created', verifyToken, async (req, res) => {
+      try {
+        const creatorEmail = req.user.email.toLowerCase();
+
+        const myEvents = await eventsCollection
+          .find({ creatorEmail })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send({
+          success: true,
+          count: myEvents.length,
+          events: myEvents
+        });
+
+      } catch (error) {
+        console.error('Fetch My Events Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to retrieve your created events.' });
+      }
+    });
+
+    // PUT /api/events/:id - Update an event with strict ownership check (Private Route)
+    app.put('/api/events/:id', verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
         const userEmail = req.user.email.toLowerCase();
+        const { title, description, eventType, thumbnail, location, eventDate } = req.body;
 
-        const result = await joinedEventsCollection.deleteOne({
-          eventId: id,
-          userEmail
-        });
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ success: false, message: 'Invalid Event ID.' });
+        }
 
-        if (result.deletedCount === 0) {
-          return res.status(400).send({
+        // Check if event exists and verify ownership
+        const existingEvent = await eventsCollection.findOne({ _id: new ObjectId(id) });
+        if (!existingEvent) {
+          return res.status(404).send({ success: false, message: 'Event not found.' });
+        }
+
+        // Ownership enforcement: Only the creator can update the event
+        if (existingEvent.creatorEmail !== userEmail) {
+          return res.status(403).send({
             success: false,
-            message: 'You are not registered as an attendee for this event.'
+            message: 'Forbidden. You do not have permission to edit this event.'
           });
         }
 
-        // Decrement attendee count
-        await eventsCollection.updateOne(
-          { _id: new ObjectId(id), attendeesCount: { $gt: 0 } },
-          { $inc: { attendeesCount: -1 } }
+        // Date validation: Ensure updated date is not in the past
+        let parsedDate = existingEvent.eventDate;
+        if (eventDate) {
+          parsedDate = new Date(eventDate);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          if (isNaN(parsedDate.getTime()) || parsedDate < today) {
+            return res.status(400).send({
+              success: false,
+              message: 'Event date must be in the future. Past dates cannot be selected.'
+            });
+          }
+        }
+
+        const updateDoc = {
+          $set: {
+            title: title ? title.trim() : existingEvent.title,
+            description: description ? description.trim() : existingEvent.description,
+            eventType: eventType ? eventType.trim() : existingEvent.eventType,
+            thumbnail: thumbnail || existingEvent.thumbnail,
+            location: location ? location.trim() : existingEvent.location,
+            eventDate: parsedDate,
+            updatedAt: new Date()
+          }
+        };
+
+        await eventsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
+
+        // Also update joined events snapshot info for consistency
+        await joinedEventsCollection.updateMany(
+          { eventId: id },
+          {
+            $set: {
+              eventTitle: updateDoc.$set.title,
+              eventDate: updateDoc.$set.eventDate,
+              location: updateDoc.$set.location,
+              thumbnail: updateDoc.$set.thumbnail,
+              eventType: updateDoc.$set.eventType
+            }
+          }
         );
 
         res.send({
           success: true,
-          message: 'You have left the event.'
+          message: 'Event updated successfully!',
+          updatedEvent: { ...existingEvent, ...updateDoc.$set }
         });
 
       } catch (error) {
-        console.error('Leave Event Error:', error);
-        res.status(500).send({ success: false, message: 'Failed to leave event.' });
+        console.error('Update Event Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to update event.' });
+      }
+    });
+
+    // DELETE /api/events/:id - Delete an event with strict ownership check (Private Route)
+    app.delete('/api/events/:id', verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const userEmail = req.user.email.toLowerCase();
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ success: false, message: 'Invalid Event ID.' });
+        }
+
+        const existingEvent = await eventsCollection.findOne({ _id: new ObjectId(id) });
+        if (!existingEvent) {
+          return res.status(404).send({ success: false, message: 'Event not found.' });
+        }
+
+        // Ownership enforcement: Only the creator can delete the event
+        if (existingEvent.creatorEmail !== userEmail) {
+          return res.status(403).send({
+            success: false,
+            message: 'Forbidden. You do not have permission to delete this event.'
+          });
+        }
+
+        // Delete from events collection
+        await eventsCollection.deleteOne({ _id: new ObjectId(id) });
+
+        // Clean up any joined event records associated with this deleted event
+        await joinedEventsCollection.deleteMany({ eventId: id });
+
+        res.send({
+          success: true,
+          message: 'Event deleted successfully.'
+        });
+
+      } catch (error) {
+        console.error('Delete Event Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to delete event.' });
       }
     });
 
