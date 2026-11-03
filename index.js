@@ -217,6 +217,15 @@ async function run() {
           };
           const result = await usersCollection.insertOne(newUser);
           user = { ...newUser, _id: result.insertedId };
+        } else {
+          // Update existing user with fresh Google photoURL & name
+          const updateFields = {};
+          if (photoURL) updateFields.photoURL = photoURL;
+          if (name) updateFields.name = name;
+          updateFields.authProvider = user.authProvider || 'google';
+
+          await usersCollection.updateOne({ _id: user._id }, { $set: updateFields });
+          user = { ...user, ...updateFields };
         }
 
         const token = generateToken({
@@ -265,6 +274,15 @@ async function run() {
           };
           const result = await usersCollection.insertOne(newUser);
           user = { ...newUser, _id: result.insertedId };
+        } else {
+          // Always update existing user with fresh GitHub photoURL & name
+          const updateFields = {};
+          if (photoURL) updateFields.photoURL = photoURL;
+          if (name) updateFields.name = name;
+          updateFields.authProvider = user.authProvider || 'github';
+
+          await usersCollection.updateOne({ _id: user._id }, { $set: updateFields });
+          user = { ...user, ...updateFields };
         }
 
         const token = generateToken({
@@ -305,7 +323,14 @@ async function run() {
 
         res.send({
           success: true,
-          user
+          user: {
+            id: user._id,
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            photoURL: user.photoURL,
+            authProvider: user.authProvider || 'email'
+          }
         });
       } catch (error) {
         console.error('Auth Me Error:', error);
