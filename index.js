@@ -209,7 +209,7 @@ async function run() {
 
         if (!user) {
           const newUser = {
-            name: name || 'Community Volunteer',
+            name: name || 'Google Volunteer',
             email: normalizedEmail,
             photoURL: photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
             authProvider: 'google',
@@ -240,6 +240,54 @@ async function run() {
       } catch (error) {
         console.error('Google Auth Error:', error);
         res.status(500).send({ success: false, message: 'Failed to authenticate with Google.' });
+      }
+    });
+
+    // GitHub Sign-in sync endpoint
+    app.post('/api/auth/github', async (req, res) => {
+      try {
+        const { name, email, photoURL } = req.body;
+
+        if (!email) {
+          return res.status(400).send({ success: false, message: 'Email is required for GitHub login.' });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        let user = await usersCollection.findOne({ email: normalizedEmail });
+
+        if (!user) {
+          const newUser = {
+            name: name || 'GitHub Developer',
+            email: normalizedEmail,
+            photoURL: photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+            authProvider: 'github',
+            createdAt: new Date()
+          };
+          const result = await usersCollection.insertOne(newUser);
+          user = { ...newUser, _id: result.insertedId };
+        }
+
+        const token = generateToken({
+          id: user._id,
+          email: user.email,
+          name: user.name
+        });
+
+        res.send({
+          success: true,
+          message: 'GitHub login successful!',
+          token,
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            photoURL: user.photoURL
+          }
+        });
+
+      } catch (error) {
+        console.error('GitHub Auth Error:', error);
+        res.status(500).send({ success: false, message: 'Failed to authenticate with GitHub.' });
       }
     });
 
