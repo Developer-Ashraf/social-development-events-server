@@ -3,6 +3,8 @@
 The backend REST API server for the **CivicPulse Social Development Events Platform**, built with **Node.js, Express.js, nodemon, MongoDB Atlas**, and **JWT Authentication**.
 
 ## 🔗 Live & Repository Links
+- **Live Client Application:** [https://social-development-events-client-liart.vercel.app](https://social-development-events-client-liart.vercel.app)
+- **Live Server API:** [https://social-development-events-server-nine.vercel.app](https://social-development-events-server-nine.vercel.app)
 - **Client Repository:** [https://github.com/Developer-Ashraf/social-development-events-client](https://github.com/Developer-Ashraf/social-development-events-client)
 - **Server Repository:** [https://github.com/Developer-Ashraf/social-development-events-server](https://github.com/Developer-Ashraf/social-development-events-server)
 
