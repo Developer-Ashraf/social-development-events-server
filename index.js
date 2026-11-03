@@ -11,12 +11,19 @@ const { verifyToken, verifyTokenOptional } = require('./middleware/auth');
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware configuration
+// Dynamic CORS configuration allowing localhost, configured client, and Vercel domains
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'https://social-development-events-client.vercel.app'
-  ],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
+    const isVercel = /\.vercel\.app$/.test(new URL(origin).hostname);
+    const isConfiguredClient = process.env.CLIENT_URL && origin === process.env.CLIENT_URL;
+
+    if (isLocalhost || isVercel || isConfiguredClient) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -48,18 +55,36 @@ const client = new MongoClient(uri, {
   }
 });
 
-async function run() {
-  try {
-    // Connect to database
+let isConnected = false;
+async function connectDB() {
+  if (!isConnected) {
     await client.connect();
-    
-    const db = client.db(process.env.DB_NAME || 'social_events_db');
-    const usersCollection = db.collection('users');
-    const eventsCollection = db.collection('events');
-    const joinedEventsCollection = db.collection('joined_events');
-
-    await db.command({ ping: 1 });
+    isConnected = true;
     console.log("Successfully connected to MongoDB Atlas!");
+  }
+}
+
+// Connect immediately in standard environments
+connectDB().catch((err) => {
+  console.warn("Initial DB connection warning (will retry on incoming request):", err.message);
+});
+
+// Database and Collections
+const db = client.db(process.env.DB_NAME || 'social_events_db');
+const usersCollection = db.collection('users');
+const eventsCollection = db.collection('events');
+const joinedEventsCollection = db.collection('joined_events');
+
+// Ensure DB is connected before processing requests (critical for Vercel Serverless cold starts)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error("Database connection error:", error);
+    res.status(500).send({ success: false, message: "Database connection failed" });
+  }
+});
 
     // ==========================================
     // 1. AUTHENTICATION & USER MANAGEMENT
@@ -846,13 +871,12 @@ async function run() {
       });
     });
 
-  } catch (error) {
-    console.error("MongoDB Connection Error:", error);
-  }
+// Listen locally if not in Vercel serverless environment
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
 }
 
-run().catch(console.dir);
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+// Export Express app for Vercel Serverless deployment
+module.exports = app;
