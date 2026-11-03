@@ -1,6 +1,6 @@
-# 🌍 Social Development Events Platform - Server API
+# 🌍 CivicPulse - Citizen Action Platform Server API
 
-The backend REST API server for the **Social Development Events Platform**, built with **Node.js, Express.js, MongoDB Atlas**, and **JWT Authentication**.
+The backend REST API server for the **CivicPulse Social Development Events Platform**, built with **Node.js, Express.js, nodemon, MongoDB Atlas**, and **JWT Authentication**.
 
 ## 🔗 Live & Repository Links
 - **Client Repository:** [https://github.com/Developer-Ashraf/social-development-events-client](https://github.com/Developer-Ashraf/social-development-events-client)
@@ -15,13 +15,15 @@ The backend REST API server for the **Social Development Events Platform**, buil
 4. **Dynamic Upcoming Event Filtering:** Excludes past events automatically, sorting active community drives chronologically.
 5. **MongoDB Native Driver & Indexing:** Utilizes official MongoDB Node.js driver with optimized `.limit(6)` query for recent homepage events.
 6. **Volunteer Attendance Tracking:** Automatically maintains participation counts and synchronizes joined records.
-7. **Profile Update Synchronization:** Live profile updates cascade to user events and attendance lists.
+7. **OAuth Profile Synchronization:** Live profile updates and OAuth synchronization for Google and GitHub accounts.
+8. **Nodemon Watcher:** Pre-configured `npm run dev` script using `nodemon` for active live reloading.
 
 ---
 
 ## 🛠️ Tech Stack
 - **Runtime:** Node.js (v20+)
 - **Framework:** Express.js
+- **Dev Watcher:** nodemon
 - **Database:** MongoDB Atlas (Native MongoDB Driver v6)
 - **Security & Auth:** JSON Web Tokens (JWT), bcryptjs
 - **Environment Management:** dotenv, CORS
@@ -36,6 +38,7 @@ The backend REST API server for the **Social Development Events Platform**, buil
 | `POST` | `/api/auth/register` | Public | Register with name, email, photoURL, and validated password |
 | `POST` | `/api/auth/login` | Public | Authenticate with email & password, returns JWT |
 | `POST` | `/api/auth/google` | Public | Social Google auth login & profile sync |
+| `POST` | `/api/auth/github` | Public | Social GitHub auth login & profile sync |
 | `GET` | `/api/auth/me` | Private | Retrieve authenticated user profile |
 | `PUT` | `/api/auth/profile` | Private | Update user display name and avatar photo |
 
@@ -69,7 +72,7 @@ The backend REST API server for the **Social Development Events Platform**, buil
    ```bash
    npm install
    ```
-3. Create `.env` file in root directory:
+3. Create `.env` file in root directory (refer to `.env.example`):
    ```env
    PORT=5000
    MONGODB_URI=your_mongodb_atlas_connection_string
@@ -80,5 +83,5 @@ The backend REST API server for the **Social Development Events Platform**, buil
 4. Run server:
    ```bash
    npm run dev
-   # Server runs on http://localhost:5000
+   # Server runs on http://localhost:5000 with nodemon
    ```
